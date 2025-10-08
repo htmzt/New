@@ -18,12 +18,12 @@ class EmailService:
     """
     
     def __init__(self):
-        self.smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        self.smtp_host = os.getenv("SMTP_HOST")
+        self.smtp_port = int(os.getenv("SMTP_PORT"))
         self.smtp_user = os.getenv("SMTP_USER")
         self.smtp_password = os.getenv("SMTP_PASSWORD")
-        self.from_email = os.getenv("FROM_EMAIL", "noreply@example.com")
-        self.frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        self.from_email = os.getenv("FROM_EMAIL")
+        self.frontend_url = os.getenv("FRONTEND_URL")
         self.environment = os.getenv("ENVIRONMENT", "development")
     
     def send_password_reset_email(self, email: str, token: str, user_name: str) -> bool:
