@@ -1,3 +1,4 @@
+# app/routers/summary.py
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -10,7 +11,7 @@ from datetime import datetime, timedelta
 from app.database import get_db
 from app.auth import get_current_user
 from app.models import User
-from app.services.summary_builder_service import SummaryBuilderService
+from app.services.summary_service import SummaryBuilderService
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +26,18 @@ async def get_monthly_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get monthly summary by project name with optional filters"""
+    """
+    Get monthly summary by project name with optional filters
+    
+    Returns aggregated data grouped by project and month.
+    """
     try:
-        summary_service = SummaryService(db)
+        service = SummaryBuilderService(db)
         user_id = str(current_user.id)
         
-        return summary_service.get_monthly_summary(
+        return service.get_summary(
             user_id=user_id,
+            period_type="monthly",
             year=year,
             month=month,
             project_name=project_name
@@ -44,17 +50,22 @@ async def get_monthly_summary(
 @router.get("/weekly")
 async def get_weekly_summary(
     year: Optional[int] = Query(None, description="Filter by year"),
-    week: Optional[int] = Query(None, ge=1, le=53, description="Filter by week number"),
+    week: Optional[int] = Query(None, ge=1, le=53, description="Filter by week number (1-53)"),
     project_name: Optional[str] = Query(None, description="Filter by project name"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get weekly summary - defaults to last 5 weeks if no filters"""
+    """
+    Get weekly summary by project name with optional filters
+    
+    Returns aggregated data grouped by project and week.
+    Default: Shows last 5 weeks if no filters provided.
+    """
     try:
         service = SummaryBuilderService(db)
         user_id = str(current_user.id)
         
-        # SIMPLE LOGIC: If no year/week filter, limit to last 5 weeks
+        # If no year/week filter, limit to last 5 weeks
         if year is None and week is None:
             # Calculate 5 weeks ago from today
             weeks_ago = 5
@@ -63,11 +74,7 @@ async def get_weekly_summary(
             
             # Get current year and week
             current_year = today.year
-            current_week = today.isocalendar()[1]  # ISO week number
-            
-            # Get year/week from 5 weeks ago
-            start_year = five_weeks_ago.year
-            start_week = five_weeks_ago.isocalendar()[1]
+            current_week = today.isocalendar()[1]
             
             # Get all summaries for current year
             result = service.get_summary(
@@ -100,22 +107,33 @@ async def get_weekly_summary(
         
     except Exception as e:
         logger.error(f"Error in get_weekly_summary: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Error fetching weekly summary: {str(e)}")
+
+
 @router.get("/yearly")
 async def get_yearly_summary(
     project_name: Optional[str] = Query(None, description="Filter by project name"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get yearly summary aggregated by project and year"""
+    """
+    Get yearly summary aggregated by project and year
+    
+    Returns aggregated data grouped by project and year.
+    """
     try:
-        summary_service = SummaryService(db)
+        service = SummaryBuilderService(db)
         user_id = str(current_user.id)
         
-        return summary_service.get_yearly_summary(
+        result = service.get_summary(
             user_id=user_id,
+            period_type="yearly",
             project_name=project_name
         )
+        
+        # Return just the summaries array for yearly (backward compatibility)
+        return result["summaries"]
+        
     except Exception as e:
         logger.error(f"Error in get_yearly_summary: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching yearly summary: {str(e)}")
@@ -146,6 +164,7 @@ async def get_available_periods(
         logger.error(f"Error in get_available_periods: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving available periods: {str(e)}")
 
+
 @router.get("/projects")
 async def get_project_list(
     db: Session = Depends(get_db),
@@ -153,10 +172,10 @@ async def get_project_list(
 ):
     """Get list of available project names for filtering"""
     try:
-        summary_service = SummaryService(db)
+        service = SummaryBuilderService(db)
         user_id = str(current_user.id)
         
-        projects = summary_service.get_project_list(user_id)
+        projects = service.get_project_list(user_id)
         return {"projects": projects}
     except Exception as e:
         logger.error(f"Error in get_project_list: {str(e)}")
@@ -167,21 +186,44 @@ async def get_project_list(
 async def export_summary_data(
     year: Optional[int] = Query(None, description="Filter by year"),
     month: Optional[int] = Query(None, ge=1, le=12, description="Filter by month (1-12)"),
+    week: Optional[int] = Query(None, ge=1, le=53, description="Filter by week (1-53)"),
     project_name: Optional[str] = Query(None, description="Filter by project name"),
-    summary_type: str = Query("monthly", description="Type of summary: 'monthly' or 'yearly'"),
+    summary_type: str = Query("monthly", description="Type of summary: 'monthly', 'weekly', or 'yearly'"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Export summary data to Excel"""
+    """
+    Export summary data to Excel
+    
+    Supports monthly, weekly, and yearly summaries.
+    """
     try:
-        summary_service = SummaryService(db)
+        service = SummaryBuilderService(db)
         user_id = str(current_user.id)
         
+        # Get data based on summary type
         if summary_type == "yearly":
-            data = summary_service.get_yearly_summary(user_id, project_name)
+            result = service.get_summary(user_id, "yearly", project_name=project_name)
+            data = result["summaries"]
             filename = "yearly_summary.xlsx"
-        else:
-            result = summary_service.get_monthly_summary(user_id, year, month, project_name)
+            
+        elif summary_type == "weekly":
+            result = service.get_summary(
+                user_id, "weekly", 
+                year=year, 
+                week=week, 
+                project_name=project_name
+            )
+            data = result["summaries"]
+            filename = "weekly_summary.xlsx"
+            
+        else:  # monthly
+            result = service.get_summary(
+                user_id, "monthly", 
+                year=year, 
+                month=month, 
+                project_name=project_name
+            )
             data = result["summaries"]
             filename = "monthly_summary.xlsx"
         
@@ -193,9 +235,22 @@ async def export_summary_data(
         for item in data:
             flat_item = {
                 'Project Name': item.get('project_name'),
-                'Year': item.get('year'),
-                'Month': item.get('month'),
-                'Month Year': item.get('month_year'),
+                'Period': item.get('period_label'),
+            }
+            
+            # Add period-specific fields
+            if summary_type == "yearly":
+                flat_item['Year'] = item.get('year')
+            elif summary_type == "monthly":
+                flat_item['Year'] = item.get('year')
+                flat_item['Month'] = item.get('month')
+            elif summary_type == "weekly":
+                flat_item['Year'] = item.get('year')
+                flat_item['Week Number'] = item.get('week_number')
+                flat_item['Week Start'] = item.get('period_date')
+            
+            # Add common fields
+            flat_item.update({
                 'Total Records': item.get('total_records'),
                 'Unique POs': item.get('unique_pos'),
                 
@@ -220,7 +275,8 @@ async def export_summary_data(
                 'Transportation Count': item.get('category_breakdown', {}).get('transportation', 0),
                 'Site Engineer Count': item.get('category_breakdown', {}).get('site_engineer', 0),
                 'Service Count': item.get('category_breakdown', {}).get('service', 0),
-            }
+            })
+            
             flattened_data.append(flat_item)
         
         df = pd.DataFrame(flattened_data)
@@ -231,7 +287,7 @@ async def export_summary_data(
             df.to_excel(writer, sheet_name='Summary Data', index=False)
             
             # Add a second sheet with overall totals if available
-            if summary_type == "monthly" and "overall_totals" in result:
+            if "overall_totals" in result:
                 totals_data = [{
                     'Metric': 'Total Records',
                     'Value': result["overall_totals"]["total_records"]

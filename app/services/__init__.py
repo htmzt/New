@@ -3,8 +3,9 @@ from .po_service import POService
 from .acceptance_service import AcceptanceService
 from .dashboard_service import DashboardService
 from .file_service import FileService
-from .summary_service import SummaryService
+from .summary_service import SummaryBuilderService
 from .gap_analysis_service import GapAnalysisService
+from .gap_aging_service import GapAgingService
 from .base_service import BaseService
 
 __all__ = [
@@ -13,9 +14,8 @@ __all__ = [
     'AcceptanceService',
     'DashboardService',
     'FileService',
-    'SummaryService',
-    'SummaryBuilderService',  # NEW!
-
+    'SummaryBuilderService',
     'GapAnalysisService',
+    'GapAgingService',
     'BaseService'
 ]

@@ -10,8 +10,8 @@ SELECT
     CASE
         WHEN po.item_description ILIKE '%Survey%' THEN 'Survey'
         WHEN po.item_description ILIKE '%Transportation%' THEN 'Transportation'
-        WHEN po.item_description ILIKE '%Work Order%' AND po.site_name ILIKE '%Non DU%' THEN 'Site Engineering'
-        WHEN po.item_description ILIKE '%Work Order%' THEN 'Site Engineer'
+        WHEN po.item_description ILIKE '%Work Order%' AND po.site_name ILIKE '%Non DU%' THEN 'Site Engineer'
+        WHEN po.item_description ILIKE '%Work Order%' THEN 'Service'
         ELSE 'Service'
     END AS category,
     po.item_description AS item_desc,
