@@ -226,7 +226,7 @@ class EmailService:
                     </div>
                     
                     <p>Or copy and paste this token :</p>
-                    <div class="link-box">{token}</div>
+                    <div class="link-box">{reset_link}</div>
                     
                     <div class="warning">
                         <p class="warning-text">⚠️ This link will expire in 30 minutes.</p>
