@@ -12,7 +12,7 @@ from app.services.gap_aging_service import GapAgingService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/gap-analysis", tags=["gap-analysis"])
+router = APIRouter(prefix="/api/gap-analysis", tags=["gap-analysis"])
 
 @router.get("/financial-summary")
 async def get_gap_financial_summary(
