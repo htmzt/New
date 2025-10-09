@@ -16,12 +16,11 @@ load_dotenv()
 # JWT Configuration
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 90  # Token expires in 30 minutes
+ACCESS_TOKEN_EXPIRE_MINUTES = 480  
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# OAuth2 scheme for Swagger UI - Points to /api/auth/token endpoint
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/auth/token",  
     scheme_name="JWT"

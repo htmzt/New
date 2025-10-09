@@ -222,11 +222,11 @@ class EmailService:
                     <p>We received a request to reset your password. Click the button below to create a new password:</p>
                     
                     <div style="text-align: center;">
-                        <a href="{reset_link}" class="button">Reset Password</a>
+                        <a href="" class="button">Reset Password</a>
                     </div>
                     
-                    <p>Or copy and paste this link into your browser:</p>
-                    <div class="link-box">{reset_link}</div>
+                    <p>Or copy and paste this token :</p>
+                    <div class="link-box">{token}</div>
                     
                     <div class="warning">
                         <p class="warning-text">⚠️ This link will expire in 30 minutes.</p>
