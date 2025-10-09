@@ -23,25 +23,47 @@ async def get_monthly_summary(
     year: Optional[int] = Query(None, description="Filter by year (e.g., 2024)"),
     month: Optional[int] = Query(None, ge=1, le=12, description="Filter by month (1-12)"),
     project_name: Optional[str] = Query(None, description="Filter by project name"),
+    page: int = Query(1, ge=1, description="Page number (starts at 1)"),
+    per_page: int = Query(50, ge=1, le=500, description="Items per page (max 500)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get monthly summary by project name with optional filters
+    Get monthly summary by project name with pagination
+    
+    **NEW: Now paginated to prevent memory issues!**
     
     Returns aggregated data grouped by project and month.
+    Use pagination to load data in chunks.
+    
+    **Query Parameters:**
+    - `year`: Filter by specific year (optional)
+    - `month`: Filter by specific month 1-12 (optional, requires year)
+    - `project_name`: Filter by project name (optional)
+    - `page`: Page number starting from 1 (default: 1)
+    - `per_page`: Records per page, max 500 (default: 50)
+    
+    **Example:**
+    - Get first page: `/api/summary/monthly?page=1&per_page=50`
+    - Get specific month: `/api/summary/monthly?year=2024&month=3&page=1`
+    - Get project data: `/api/summary/monthly?project_name=IAM&page=1`
     """
     try:
         service = SummaryBuilderService(db)
         user_id = str(current_user.id)
         
-        return service.get_summary(
+        result = service.get_summary_paginated(
             user_id=user_id,
             period_type="monthly",
             year=year,
             month=month,
-            project_name=project_name
+            project_name=project_name,
+            page=page,
+            per_page=per_page
         )
+        
+        return result
+        
     except Exception as e:
         logger.error(f"Error in get_monthly_summary: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching monthly summary: {str(e)}")
@@ -52,58 +74,45 @@ async def get_weekly_summary(
     year: Optional[int] = Query(None, description="Filter by year"),
     week: Optional[int] = Query(None, ge=1, le=53, description="Filter by week number (1-53)"),
     project_name: Optional[str] = Query(None, description="Filter by project name"),
+    page: int = Query(1, ge=1, description="Page number (starts at 1)"),
+    per_page: int = Query(50, ge=1, le=500, description="Items per page (max 500)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get weekly summary by project name with optional filters
+    Get weekly summary by project name with pagination
+    
+    **NEW: Now paginated to prevent memory issues!**
     
     Returns aggregated data grouped by project and week.
     Default: Shows last 5 weeks if no filters provided.
+    
+    **Query Parameters:**
+    - `year`: Filter by specific year (optional)
+    - `week`: Filter by specific week 1-53 (optional, requires year)
+    - `project_name`: Filter by project name (optional)
+    - `page`: Page number starting from 1 (default: 1)
+    - `per_page`: Records per page, max 500 (default: 50)
     """
     try:
         service = SummaryBuilderService(db)
         user_id = str(current_user.id)
         
-        # If no year/week filter, limit to last 5 weeks
+        # If no year/week filter, default to current year
         if year is None and week is None:
-            # Calculate 5 weeks ago from today
-            weeks_ago = 5
-            today = datetime.now()
-            five_weeks_ago = today - timedelta(weeks=weeks_ago)
-            
-            # Get current year and week
-            current_year = today.year
-            current_week = today.isocalendar()[1]
-            
-            # Get all summaries for current year
-            result = service.get_summary(
-                user_id=user_id,
-                period_type="weekly",
-                year=current_year,
-                project_name=project_name
-            )
-            
-            # Filter to only last 5 weeks
-            if result["summaries"]:
-                filtered_summaries = [
-                    s for s in result["summaries"]
-                    if s.get("week_number", 0) >= current_week - weeks_ago
-                ]
-                
-                result["summaries"] = filtered_summaries[:weeks_ago * 10]  # Safety limit
-                result["info"] = f"Showing last {weeks_ago} weeks"
-            
-            return result
+            year = datetime.now().year
         
-        # If year/week provided, use normal filtering
-        return service.get_summary(
+        result = service.get_summary_paginated(
             user_id=user_id,
             period_type="weekly",
             year=year,
             week=week,
-            project_name=project_name
+            project_name=project_name,
+            page=page,
+            per_page=per_page
         )
+        
+        return result
         
     except Exception as e:
         logger.error(f"Error in get_weekly_summary: {str(e)}")
@@ -113,11 +122,15 @@ async def get_weekly_summary(
 @router.get("/yearly")
 async def get_yearly_summary(
     project_name: Optional[str] = Query(None, description="Filter by project name"),
+    page: int = Query(1, ge=1, description="Page number (starts at 1)"),
+    per_page: int = Query(50, ge=1, le=500, description="Items per page (max 500)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get yearly summary aggregated by project and year
+    Get yearly summary aggregated by project and year with pagination
+    
+    **NEW: Now paginated to prevent memory issues!**
     
     Returns aggregated data grouped by project and year.
     """
@@ -125,14 +138,15 @@ async def get_yearly_summary(
         service = SummaryBuilderService(db)
         user_id = str(current_user.id)
         
-        result = service.get_summary(
+        result = service.get_summary_paginated(
             user_id=user_id,
             period_type="yearly",
-            project_name=project_name
+            project_name=project_name,
+            page=page,
+            per_page=per_page
         )
         
-        # Return just the summaries array for yearly (backward compatibility)
-        return result["summaries"]
+        return result
         
     except Exception as e:
         logger.error(f"Error in get_yearly_summary: {str(e)}")
@@ -148,7 +162,8 @@ async def get_available_periods(
     """
     Get available periods for filtering
     
-    **NEW: Now supports weekly periods!**
+    Returns a list of available years/months/weeks that have data.
+    Use this to populate filter dropdowns in your UI.
     
     **Examples:**
     - `GET /api/summary/periods?period_type=monthly`
@@ -189,46 +204,62 @@ async def export_summary_data(
     week: Optional[int] = Query(None, ge=1, le=53, description="Filter by week (1-53)"),
     project_name: Optional[str] = Query(None, description="Filter by project name"),
     summary_type: str = Query("monthly", description="Type of summary: 'monthly', 'weekly', or 'yearly'"),
+    max_records: int = Query(10000, ge=1, le=50000, description="Maximum records to export (max 50,000)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Export summary data to Excel
     
+    **IMPORTANT:** Export is limited to prevent memory issues.
+    Use filters to narrow down your export if you hit the limit.
+    
     Supports monthly, weekly, and yearly summaries.
+    
+    **Query Parameters:**
+    - `max_records`: Maximum records to export (default 10,000, max 50,000)
+    - Use year/month/week/project_name filters to reduce dataset size
     """
     try:
         service = SummaryBuilderService(db)
         user_id = str(current_user.id)
         
-        # Get data based on summary type
+        # Get data based on summary type with limit
         if summary_type == "yearly":
-            result = service.get_summary(user_id, "yearly", project_name=project_name)
-            data = result["summaries"]
+            result = service.get_summary_for_export(
+                user_id, "yearly", 
+                project_name=project_name,
+                max_records=max_records
+            )
             filename = "yearly_summary.xlsx"
             
         elif summary_type == "weekly":
-            result = service.get_summary(
+            result = service.get_summary_for_export(
                 user_id, "weekly", 
                 year=year, 
                 week=week, 
-                project_name=project_name
+                project_name=project_name,
+                max_records=max_records
             )
-            data = result["summaries"]
             filename = "weekly_summary.xlsx"
             
         else:  # monthly
-            result = service.get_summary(
+            result = service.get_summary_for_export(
                 user_id, "monthly", 
                 year=year, 
                 month=month, 
-                project_name=project_name
+                project_name=project_name,
+                max_records=max_records
             )
-            data = result["summaries"]
             filename = "monthly_summary.xlsx"
+        
+        data = result["summaries"]
         
         if not data:
             raise HTTPException(status_code=404, detail="No data found to export")
+        
+        if result.get("truncated", False):
+            logger.warning(f"Export truncated to {max_records} records for user {user_id}")
         
         # Flatten the nested data structure for Excel export
         flattened_data = []
@@ -310,6 +341,12 @@ async def export_summary_data(
                     'Metric': 'Overall Completion Rate %',
                     'Value': result["overall_totals"]["overall_completion_rate"]
                 }]
+                
+                if result.get("truncated", False):
+                    totals_data.insert(0, {
+                        'Metric': '⚠️ WARNING',
+                        'Value': f'Export limited to {max_records} records. Use filters to narrow results.'
+                    })
                 
                 totals_df = pd.DataFrame(totals_data)
                 totals_df.to_excel(writer, sheet_name='Overall Totals', index=False)

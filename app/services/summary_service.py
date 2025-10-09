@@ -1,5 +1,4 @@
-
-# app/services/summary_builder_service.py
+# app/services/summary_service.py
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -13,26 +12,25 @@ logger = logging.getLogger(__name__)
 
 class SummaryBuilderService(BaseService):
     """
-    Unified summary builder that works for any time period.
-    
-    Instead of having separate methods for monthly/yearly/weekly,
-    we have ONE method that handles all period types.
+    Unified summary builder with pagination support
     """
     
     def __init__(self, db: Session):
         super().__init__(db)
     
-    def get_summary(
+    def get_summary_paginated(
         self,
         user_id: str,
         period_type: str = "monthly",
         year: Optional[int] = None,
         month: Optional[int] = None,
         week: Optional[int] = None,
-        project_name: Optional[str] = None
+        project_name: Optional[str] = None,
+        page: int = 1,
+        per_page: int = 50
     ) -> Dict[str, Any]:
         """
-        Get summary for any period type.
+        Get paginated summary for any period type
         
         Args:
             user_id: User ID to filter by
@@ -41,11 +39,16 @@ class SummaryBuilderService(BaseService):
             month: Optional month filter (only for monthly)
             week: Optional week filter (only for weekly)
             project_name: Optional project name filter
+            page: Page number (starts at 1)
+            per_page: Records per page (max 500)
         
         Returns:
-            Dictionary with summaries and overall totals
+            Dictionary with paginated summaries and metadata
         """
         try:
+            # Enforce max per_page
+            per_page = min(per_page, 500)
+            
             # Step 1: Build base filter for merged data query
             base_filter = "po.user_id = :user_id"
             params = {"user_id": user_id}
@@ -62,8 +65,33 @@ class SummaryBuilderService(BaseService):
             )
             params.update(period_params)
             
-            # Step 3: Build the complete query
-            # This assembles all the SQL fragments into one query
+            # Step 3: Build count query (for pagination metadata)
+            count_query = f"""
+            SELECT COUNT(*) as total
+            FROM (
+                SELECT DISTINCT
+                    subquery.project_name,
+                    {self._get_group_by_fields(period_type)}
+                FROM (
+                    {MERGED_DATA_QUERY.format(base_filter=base_filter)}
+                ) as subquery
+                WHERE subquery.publish_date IS NOT NULL
+                    AND {period_filter}
+            ) as count_subquery
+            """
+            
+            count_result = self.db.execute(text(count_query), params).scalar()
+            total_count = count_result or 0
+            
+            # Calculate pagination metadata
+            total_pages = (total_count + per_page - 1) // per_page
+            has_next = page < total_pages
+            has_prev = page > 1
+            
+            # Step 4: Build the main query with pagination
+            offset = (page - 1) * per_page
+            params.update({"limit": per_page, "offset": offset})
+            
             summary_query = f"""
             SELECT 
                 subquery.project_name,
@@ -94,22 +122,31 @@ class SummaryBuilderService(BaseService):
                 {self._get_group_by_fields(period_type)}
             ORDER BY 
                 {self._get_order_by_fields(period_type)}
+            LIMIT :limit OFFSET :offset
             """
             
-            # Step 4: Execute query
+            # Step 5: Execute query
             result = self.db.execute(text(summary_query), params)
             
-            # Step 5: Format results into nice JSON structure
+            # Step 6: Format results
             summaries = self._format_summaries(result, period_type)
             
-            # Step 6: Calculate overall totals
+            # Step 7: Get overall totals (still needed for context)
             overall_totals = self._get_overall_totals(
                 user_id, period_type, year, month, week, project_name
             )
             
-            # Step 7: Return everything
+            # Step 8: Return paginated response
             return {
                 "summaries": summaries,
+                "pagination": {
+                    "page": page,
+                    "per_page": per_page,
+                    "total_count": total_count,
+                    "total_pages": total_pages,
+                    "has_next": has_next,
+                    "has_prev": has_prev
+                },
                 "overall_totals": overall_totals,
                 "period_type": period_type,
                 "filters_applied": {
@@ -117,20 +154,148 @@ class SummaryBuilderService(BaseService):
                     "month": month,
                     "week": week,
                     "project_name": project_name
-                },
-                "total_summary_records": len(summaries)
+                }
             }
             
         except Exception as e:
-            logger.error(f"Error getting {period_type} summary: {str(e)}")
+            logger.error(f"Error getting paginated {period_type} summary: {str(e)}")
             raise
     
-    def _get_group_by_fields(self, period_type: str) -> str:
+    def get_summary_for_export(
+        self,
+        user_id: str,
+        period_type: str = "monthly",
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+        week: Optional[int] = None,
+        project_name: Optional[str] = None,
+        max_records: int = 10000
+    ) -> Dict[str, Any]:
         """
-        Get the GROUP BY clause fields for SQL.
+        Get summary data for export with a hard limit
         
-        Must match the columns in get_period_grouping().
+        This method is used by the export endpoint to prevent
+        memory issues when exporting large datasets.
+        
+        Args:
+            max_records: Maximum number of records to export (default 10,000)
         """
+        try:
+            # Enforce absolute max of 50,000 records
+            max_records = min(max_records, 50000)
+            
+            # Build base filter
+            base_filter = "po.user_id = :user_id"
+            params = {"user_id": user_id}
+            
+            if project_name:
+                base_filter += " AND po.project_name ILIKE :project_name"
+                params["project_name"] = f"%{project_name}%"
+            
+            # Get period-specific SQL fragments
+            period_grouping = agg.get_period_grouping(period_type)
+            period_filter, period_params = agg.get_period_filter(
+                period_type, year, month, week
+            )
+            params.update(period_params)
+            
+            # Build query with limit
+            params["limit"] = max_records
+            
+            summary_query = f"""
+            SELECT 
+                subquery.project_name,
+                {period_grouping},
+                {agg.get_financial_aggregations()},
+                {agg.get_status_aggregations()},
+                {agg.get_payment_terms_aggregations()},
+                {agg.get_category_aggregations()},
+                {agg.get_date_range_aggregations()}
+            FROM (
+                {MERGED_DATA_QUERY.format(base_filter=base_filter)}
+            ) as subquery
+            WHERE subquery.publish_date IS NOT NULL
+                AND {period_filter}
+            GROUP BY 
+                subquery.project_name,
+                {self._get_group_by_fields(period_type)}
+            ORDER BY 
+                {self._get_order_by_fields(period_type)}
+            LIMIT :limit
+            """
+            
+            # Execute query
+            result = self.db.execute(text(summary_query), params)
+            summaries = self._format_summaries(result, period_type)
+            
+            # Check if results were truncated
+            truncated = len(summaries) >= max_records
+            
+            # Get overall totals
+            overall_totals = self._get_overall_totals(
+                user_id, period_type, year, month, week, project_name
+            )
+            
+            return {
+                "summaries": summaries,
+                "overall_totals": overall_totals,
+                "truncated": truncated,
+                "max_records": max_records,
+                "period_type": period_type,
+                "filters_applied": {
+                    "year": year,
+                    "month": month,
+                    "week": week,
+                    "project_name": project_name
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting export data for {period_type}: {str(e)}")
+            raise
+    
+    # Keep original get_summary for backward compatibility (but deprecated)
+    def get_summary(
+        self,
+        user_id: str,
+        period_type: str = "monthly",
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+        week: Optional[int] = None,
+        project_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        DEPRECATED: Use get_summary_paginated instead
+        
+        This method is kept for backward compatibility but will
+        default to returning only 1000 records to prevent memory issues.
+        """
+        logger.warning(f"get_summary() is deprecated. Use get_summary_paginated() instead.")
+        
+        # Call paginated version with default limit
+        result = self.get_summary_paginated(
+            user_id=user_id,
+            period_type=period_type,
+            year=year,
+            month=month,
+            week=week,
+            project_name=project_name,
+            page=1,
+            per_page=1000
+        )
+        
+        # Return in old format for compatibility
+        return {
+            "summaries": result["summaries"],
+            "overall_totals": result["overall_totals"],
+            "period_type": result["period_type"],
+            "filters_applied": result["filters_applied"],
+            "total_summary_records": result["pagination"]["total_count"],
+            "warning": "This endpoint is deprecated. Results limited to 1000 records. Use paginated version."
+        }
+    
+    def _get_group_by_fields(self, period_type: str) -> str:
+        """Get the GROUP BY clause fields for SQL"""
         if period_type == "weekly":
             return """
                 DATE_TRUNC('week', publish_date),
@@ -150,7 +315,7 @@ class SummaryBuilderService(BaseService):
             raise ValueError(f"Unknown period type: {period_type}")
     
     def _get_order_by_fields(self, period_type: str) -> str:
-        """Get the ORDER BY clause for SQL."""
+        """Get the ORDER BY clause for SQL"""
         if period_type == "weekly":
             return "year DESC, week_number DESC, subquery.project_name ASC"
         elif period_type == "monthly":
@@ -161,11 +326,7 @@ class SummaryBuilderService(BaseService):
             return "subquery.project_name ASC"
     
     def _format_summaries(self, result, period_type: str) -> List[Dict]:
-        """
-        Format SQL results into JSON structure.
-        
-        Takes raw database rows and converts to nice dictionaries.
-        """
+        """Format SQL results into JSON structure"""
         summaries = []
         
         for row in result:
@@ -246,7 +407,7 @@ class SummaryBuilderService(BaseService):
         week: Optional[int],
         project_name: Optional[str]
     ) -> Dict[str, Any]:
-        """Calculate overall totals for the filtered dataset."""
+        """Calculate overall totals for the filtered dataset"""
         try:
             # Same base filter as main query
             base_filter = "po.user_id = :user_id"
