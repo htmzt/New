@@ -40,12 +40,14 @@ class OverviewChartsService(BaseService):
             params.update(date_ranges)
             
             # Build and execute query
+            # FIXED: Now calculates paid as (line_amount - remaining) to match Summary logic
             overview_query = f"""
             WITH base_data AS (
                 SELECT 
                     publish_date,
                     status,
-                    line_amount
+                    line_amount,
+                    remaining
                 FROM (
                     {MERGED_DATA_QUERY.format(base_filter=base_filter)}
                 ) AS merged
@@ -54,7 +56,7 @@ class OverviewChartsService(BaseService):
             SELECT 
                 -- Total (All Time)
                 SUM(CASE WHEN status != 'CANCELLED' THEN COALESCE(line_amount, 0) ELSE 0 END) as total_received,
-                SUM(CASE WHEN status = 'CLOSED' THEN COALESCE(line_amount, 0) ELSE 0 END) as total_paid,
+                SUM(CASE WHEN status != 'CANCELLED' THEN COALESCE(line_amount, 0) - COALESCE(remaining, 0) ELSE 0 END) as total_paid,
                 
                 -- Weekly (Current Week)
                 SUM(CASE 
@@ -67,8 +69,8 @@ class OverviewChartsService(BaseService):
                 SUM(CASE 
                     WHEN publish_date >= :week_start 
                     AND publish_date <= :week_end 
-                    AND status = 'CLOSED'
-                    THEN COALESCE(line_amount, 0) 
+                    AND status != 'CANCELLED'
+                    THEN COALESCE(line_amount, 0) - COALESCE(remaining, 0)
                     ELSE 0 
                 END) as weekly_paid,
                 
@@ -83,8 +85,8 @@ class OverviewChartsService(BaseService):
                 SUM(CASE 
                     WHEN publish_date >= :month_start 
                     AND publish_date <= :month_end 
-                    AND status = 'CLOSED'
-                    THEN COALESCE(line_amount, 0) 
+                    AND status != 'CANCELLED'
+                    THEN COALESCE(line_amount, 0) - COALESCE(remaining, 0)
                     ELSE 0 
                 END) as monthly_paid,
                 
@@ -99,8 +101,8 @@ class OverviewChartsService(BaseService):
                 SUM(CASE 
                     WHEN publish_date >= :quarter_start 
                     AND publish_date <= :quarter_end 
-                    AND status = 'CLOSED'
-                    THEN COALESCE(line_amount, 0) 
+                    AND status != 'CANCELLED'
+                    THEN COALESCE(line_amount, 0) - COALESCE(remaining, 0)
                     ELSE 0 
                 END) as quarter_paid,
                 
@@ -115,8 +117,8 @@ class OverviewChartsService(BaseService):
                 SUM(CASE 
                     WHEN publish_date >= :year_start 
                     AND publish_date <= :year_end 
-                    AND status = 'CLOSED'
-                    THEN COALESCE(line_amount, 0) 
+                    AND status != 'CANCELLED'
+                    THEN COALESCE(line_amount, 0) - COALESCE(remaining, 0)
                     ELSE 0 
                 END) as yearly_paid
                 
