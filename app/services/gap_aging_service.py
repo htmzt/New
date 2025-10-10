@@ -26,6 +26,8 @@ class GapAgingService(BaseService):
         """
         Get aging analysis of pending POs bucketed by days since publish_date
         
+        FIXED: Now uses 'remaining' instead of 'line_amount' for accurate pending amounts
+        
         Args:
             user_id: User ID to filter by
             project_name: Optional project name filter
@@ -53,7 +55,7 @@ class GapAgingService(BaseService):
                 # Category is calculated in MERGED_DATA_QUERY, so we filter in subquery
                 pass  # Will handle in WHERE clause below
             
-            # Build aging analysis query
+            # Build aging analysis query - FIXED VERSION
             aging_query = f"""
             WITH pending_pos AS (
                 SELECT 
@@ -67,6 +69,7 @@ class GapAgingService(BaseService):
                     (ac_date IS NULL OR pac_date IS NULL)
                     AND status NOT IN ('CLOSED', 'CANCELLED')
                     AND publish_date IS NOT NULL
+                    AND remaining > 0
                     -- Category filter if provided
                     {("AND category = :category" if category else "")}
             ),
@@ -81,15 +84,17 @@ class GapAgingService(BaseService):
                         ELSE 'Unknown'
                     END AS aging_bucket,
                     
-                    line_amount,
+                    remaining AS total_amount,
                     
+                    -- AC Pending: If AC not paid, remaining = full pending amount
                     CASE 
-                        WHEN ac_date IS NULL THEN line_amount 
+                        WHEN ac_date IS NULL THEN remaining 
                         ELSE 0 
                     END AS ac_pending_amount,
                     
+                    -- PAC Pending: If AC paid but PAC not paid, remaining = PAC portion only
                     CASE 
-                        WHEN ac_date IS NOT NULL AND pac_date IS NULL THEN line_amount 
+                        WHEN ac_date IS NOT NULL AND pac_date IS NULL THEN remaining
                         ELSE 0 
                     END AS pac_pending_amount,
                     
@@ -101,7 +106,7 @@ class GapAgingService(BaseService):
             SELECT 
                 aging_bucket,
                 COUNT(*) AS po_count,
-                ROUND(COALESCE(SUM(line_amount), 0), 2) AS total_amount,
+                ROUND(COALESCE(SUM(total_amount), 0), 2) AS total_amount,
                 ROUND(COALESCE(SUM(ac_pending_amount), 0), 2) AS ac_pending_amount,
                 ROUND(COALESCE(SUM(pac_pending_amount), 0), 2) AS pac_pending_amount,
                 ROUND(AVG(days_old), 0) AS avg_days_old
