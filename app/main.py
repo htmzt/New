@@ -19,7 +19,8 @@ from app.routers import (
     accounts,
     merged_data,
     summary,
-    gap_analysis
+    gap_analysis,
+    overview_charts
 )
 
 # Background task utilities
@@ -66,7 +67,8 @@ async def root():
             "acceptance": "/api/acceptance-data",
             "merged_data": "/api/merged-data",
             "summary": "/api/summary",
-            "gap_analysis": "/gap-analysis"
+            "gap_analysis": "/api/gap-analysis",
+            "overview_charts": "/api/overview-charts"
         }
     }
 
@@ -82,7 +84,7 @@ app.include_router(merged_data.router)
 app.include_router(summary.router)
 app.include_router(gap_analysis.router)
 
-
+app.include_router(overview_charts.router)
 
 
 @app.on_event("startup")

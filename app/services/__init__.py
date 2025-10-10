@@ -7,6 +7,8 @@ from .summary_service import SummaryBuilderService
 from .gap_analysis_service import GapAnalysisService
 from .gap_aging_service import GapAgingService
 from .base_service import BaseService
+from .overview_charts_service import OverviewChartsService
+
 
 __all__ = [
     'AuthService',
@@ -17,5 +19,6 @@ __all__ = [
     'SummaryBuilderService',
     'GapAnalysisService',
     'GapAgingService',
-    'BaseService'
+    'BaseService',
+    'OverviewChartsService'
 ]
