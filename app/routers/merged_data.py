@@ -24,6 +24,8 @@ async def get_merged_data(
     status: Optional[str] = Query(None, description="Filter by status"),
     category: Optional[str] = Query(None, description="Filter by category"),
     project_name: Optional[str] = Query(None, description="Filter by project name"),
+    account_name: Optional[str] = Query(None, description="Filter by account name"),
+    site_code: Optional[str] = Query(None, description="Filter by site code"),
     search: Optional[str] = Query(None, description="Search in PO number or item description"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -47,8 +49,8 @@ async def get_merged_data(
         where_clause = " AND ".join(filter_conditions)
         base_query = MERGED_DATA_QUERY.format(base_filter=where_clause)
         
-        # Apply additional filters
-        if status or category:
+        # Apply additional filters on the subquery
+        if status or category or account_name or site_code:
             filter_subquery = f"SELECT * FROM ({base_query}) as subquery WHERE 1=1"
             if status:
                 filter_subquery += " AND subquery.status = :status"
@@ -56,6 +58,12 @@ async def get_merged_data(
             if category:
                 filter_subquery += " AND subquery.category = :category"  
                 params["category"] = category
+            if account_name:
+                filter_subquery += " AND subquery.account_name ILIKE :account_name"
+                params["account_name"] = f"%{account_name}%"
+            if site_code:
+                filter_subquery += " AND subquery.site_code ILIKE :site_code"
+                params["site_code"] = f"%{site_code}%"
             base_query = filter_subquery
         
         # Count query
@@ -106,6 +114,8 @@ async def export_merged_data(
     status: Optional[str] = Query(None, description="Filter by status"),
     category: Optional[str] = Query(None, description="Filter by category"),
     project_name: Optional[str] = Query(None, description="Filter by project name"),
+    account_name: Optional[str] = Query(None, description="Filter by account name"),
+    site_code: Optional[str] = Query(None, description="Filter by site code"),
     search: Optional[str] = Query(None, description="Search in PO number or item description"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -130,7 +140,7 @@ async def export_merged_data(
         base_query = MERGED_DATA_QUERY.format(base_filter=where_clause)
         
         # Apply additional filters
-        if status or category:
+        if status or category or account_name or site_code:
             filter_subquery = f"SELECT * FROM ({base_query}) as subquery WHERE 1=1"
             if status:
                 filter_subquery += " AND subquery.status = :status"
@@ -138,6 +148,12 @@ async def export_merged_data(
             if category:
                 filter_subquery += " AND subquery.category = :category"  
                 params["category"] = category
+            if account_name:
+                filter_subquery += " AND subquery.account_name ILIKE :account_name"
+                params["account_name"] = f"%{account_name}%"
+            if site_code:
+                filter_subquery += " AND subquery.site_code ILIKE :site_code"
+                params["site_code"] = f"%{site_code}%"
             base_query = filter_subquery
         
         # Execute query
