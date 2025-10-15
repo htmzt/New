@@ -41,15 +41,16 @@ class FileService(BaseService):
             tmp_file.write(content)
             return tmp_file.name
     
-    def process_po_file(self, file_path: str, user_id: str) -> Dict[str, Any]:
+    def process_po_file(self, file_path: str, user_id: str, filename: str = None) -> Dict[str, Any]:
         """Process PO file"""
         try:
-            result = process_user_csv(file_path, user_id)
+            result = process_user_csv(file_path, user_id, filename)
             return {
                 "success": True,
                 "message": "PO file processed successfully",
                 "stats": result.get('stats', {}),
-                "batch_id": result.get('batch_id')
+                "batch_id": result.get('batch_id'),
+                "upload_id": result.get('upload_id')
             }
         except Exception as e:
             logger.error(f"Error processing PO file: {str(e)}")
@@ -61,15 +62,16 @@ class FileService(BaseService):
         finally:
             self._cleanup_temp_file(file_path)
     
-    def process_acceptance_file(self, file_path: str, user_id: str) -> Dict[str, Any]:
+    def process_acceptance_file(self, file_path: str, user_id: str, filename: str = None) -> Dict[str, Any]:
         """Process Acceptance file"""
         try:
-            result = process_user_acceptance_csv(file_path, user_id)
+            result = process_user_acceptance_csv(file_path, user_id, filename)
             return {
                 "success": True,
                 "message": "Acceptance file processed successfully",
                 "stats": result.get('stats', {}),
-                "batch_id": result.get('batch_id')
+                "batch_id": result.get('batch_id'),
+                "upload_id": result.get('upload_id')
             }
         except Exception as e:
             logger.error(f"Error processing Acceptance file: {str(e)}")

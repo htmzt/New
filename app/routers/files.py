@@ -1,3 +1,4 @@
+# app/routers/files.py
 from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -16,12 +17,15 @@ async def upload_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Upload PO file for processing"""
     file_service = FileService(db)
     user_id = str(current_user.id)
     
     file_service.validate_file(file)
     file_path = await file_service.save_temp_file(file)
-    await task_queue.put(("po_process", (file_path, user_id)))
+    
+    # Pass filename to task queue (3 parameters now)
+    await task_queue.put(("po_process", (file_path, user_id, file.filename)))
 
     return JSONResponse(
         status_code=202,
@@ -38,12 +42,15 @@ async def upload_acceptance_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Upload Acceptance file for processing"""
     file_service = FileService(db)
     user_id = str(current_user.id)
     
     file_service.validate_file(file)
     file_path = await file_service.save_temp_file(file)
-    await task_queue.put(("acceptance_process", (file_path, user_id)))
+    
+    # Pass filename to task queue (3 parameters now)
+    await task_queue.put(("acceptance_process", (file_path, user_id, file.filename)))
 
     return JSONResponse(
         status_code=202,

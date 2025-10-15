@@ -1,3 +1,4 @@
+# app/tasks.py
 """
 Background task processing for file uploads
 """
@@ -28,21 +29,23 @@ async def task_worker():
                 break
                 
             if task_type == "po_process":
-                file_path, user_id = task_data
-                await process_po_file_async(file_path, user_id)
+                # Now handles 3 parameters: file_path, user_id, filename
+                file_path, user_id, filename = task_data
+                await process_po_file_async(file_path, user_id, filename)
             elif task_type == "acceptance_process":
-                file_path, user_id = task_data
-                await process_acceptance_file_async(file_path, user_id)
+                # Now handles 3 parameters: file_path, user_id, filename
+                file_path, user_id, filename = task_data
+                await process_acceptance_file_async(file_path, user_id, filename)
                 
             task_queue.task_done()
         except Exception as e:
             logger.error(f"Error in task worker: {str(e)}")
 
 
-async def process_po_file_async(file_path: str, user_id: str):
+async def process_po_file_async(file_path: str, user_id: str, filename: str):
     """Process PO file in background"""
     try:
-        logger.info(f"Starting PO file processing for user {user_id}")
+        logger.info(f"Starting PO file processing for user {user_id}: {filename}")
         
         db = SessionLocal()
         file_service = FileService(db)
@@ -52,23 +55,26 @@ async def process_po_file_async(file_path: str, user_id: str):
             thread_pool, 
             file_service.process_po_file,
             file_path, 
-            user_id
+            user_id,
+            filename
         )
         
         if result.get('success'):
-            logger.info(f"PO file processing completed successfully for user {user_id}")
+            logger.info(f"✅ PO file processing completed successfully for user {user_id}")
+            logger.info(f"   Upload ID: {result.get('upload_id')}")
+            logger.info(f"   Stats: {result.get('stats')}")
         else:
-            logger.error(f"PO file processing failed for user {user_id}: {result.get('message')}")
+            logger.error(f"❌ PO file processing failed for user {user_id}: {result.get('message')}")
             
         db.close()
     except Exception as e:
-        logger.error(f"Exception in PO file processing for user {user_id}: {str(e)}")
+        logger.error(f"💥 Exception in PO file processing for user {user_id}: {str(e)}")
 
 
-async def process_acceptance_file_async(file_path: str, user_id: str):
+async def process_acceptance_file_async(file_path: str, user_id: str, filename: str):
     """Process Acceptance file in background"""
     try:
-        logger.info(f"Starting Acceptance file processing for user {user_id}")
+        logger.info(f"Starting Acceptance file processing for user {user_id}: {filename}")
         
         db = SessionLocal()
         file_service = FileService(db)
@@ -78,14 +84,17 @@ async def process_acceptance_file_async(file_path: str, user_id: str):
             thread_pool, 
             file_service.process_acceptance_file,
             file_path, 
-            user_id
+            user_id,
+            filename
         )
         
         if result.get('success'):
-            logger.info(f"Acceptance file processing completed successfully for user {user_id}")
+            logger.info(f"✅ Acceptance file processing completed successfully for user {user_id}")
+            logger.info(f"   Upload ID: {result.get('upload_id')}")
+            logger.info(f"   Stats: {result.get('stats')}")
         else:
-            logger.error(f"Acceptance file processing failed for user {user_id}: {result.get('message')}")
+            logger.error(f"❌ Acceptance file processing failed for user {user_id}: {result.get('message')}")
             
         db.close()
     except Exception as e:
-        logger.error(f"Exception in Acceptance file processing for user {user_id}: {str(e)}")
+        logger.error(f"💥 Exception in Acceptance file processing for user {user_id}: {str(e)}")

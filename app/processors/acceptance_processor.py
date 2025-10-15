@@ -1,9 +1,10 @@
 # app/processors/acceptance_processor.py
 import uuid
+import os
 from datetime import datetime
 from typing import Dict, List, Any
 from sqlalchemy.orm import Session
-from app.models import Acceptance, AcceptanceStaging
+from app.models import Acceptance, AcceptanceStaging, UploadHistory
 from app.processors.base_etl_processor import BaseETLProcessor
 import logging
 
@@ -196,41 +197,83 @@ class AcceptanceProcessor(BaseETLProcessor):
         )
 
 
-def process_user_acceptance_csv(file_path: str, user_id: str) -> Dict:
+def process_user_acceptance_csv(file_path: str, user_id: str, file_name: str = None) -> Dict:
     """Process user Acceptance CSV file - main function called by FileService"""
     from app.database import SessionLocal
     
     db = SessionLocal()
+    upload_record = None
+    
     try:
+        # Extract filename if not provided
+        if not file_name:
+            file_name = os.path.basename(file_path)
+        
         processor = AcceptanceProcessor(db)
         
         logger.info(f"📄 Starting Acceptance CSV processing for user: {user_id}")
         
         # Load CSV into staging
-        if not processor.load_csv(file_path, user_id):
-            return {
-                'success': False,
-                'error': 'Failed to load CSV into staging',
-                'stats': processor.get_stats()
-            }
+        load_success = processor.load_csv(file_path, user_id)
         
         # Transform and load into main table
-        if not processor.transform_and_load(user_id):
-            return {
-                'success': False,
-                'error': 'Failed to transform and load data',
-                'stats': processor.get_stats()
-            }
+        transform_success = False
+        if load_success:
+            transform_success = processor.transform_and_load(user_id)
+        
+        # Get processing stats
+        stats = processor.get_stats()
+        
+        # Determine upload status
+        if load_success and transform_success:
+            status = 'success'
+        elif stats.get('processed_rows', 0) > 0:
+            status = 'partial'
+        else:
+            status = 'failed'
+        
+        # Create upload history record
+        upload_record = UploadHistory(
+            user_id=user_id,
+            file_name=file_name,
+            file_type='Acceptance',
+            total_rows=stats.get('total_rows', 0),
+            status=status
+        )
+        db.add(upload_record)
+        db.commit()
+        db.refresh(upload_record)
         
         processor.print_summary()
+        
         return {
-            'success': True,
-            'stats': processor.get_stats(),
-            'batch_id': str(processor.batch_id)
+            'success': load_success and transform_success,
+            'stats': stats,
+            'batch_id': str(processor.batch_id),
+            'upload_id': str(upload_record.id)
         }
         
     except Exception as e:
         logger.error(f"Critical error in process_user_acceptance_csv: {e}")
+        
+        # Create failed upload record
+        try:
+            if not file_name:
+                file_name = os.path.basename(file_path)
+            
+            upload_record = UploadHistory(
+                user_id=user_id,
+                file_name=file_name,
+                file_type='Acceptance',
+                total_rows=0,
+       
+                status='failed'
+            )
+            db.add(upload_record)
+            db.commit()
+        except Exception as db_error:
+            logger.error(f"Failed to create upload history: {db_error}")
+        
         return {
             'success': False,
             'error': str(e),

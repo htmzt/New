@@ -414,7 +414,26 @@ class AcceptanceStaging(Base):
         Index('idx_acceptance_staging_lookup', 'user_id', 'acceptance_no', 'po_number', 'po_line_no'),
     )
 #-----------------------------------------------------------------------------------------------------------------------------
-#----------------------------------------MERGED TABLES--------------------------------------------------------------
+#----------------------------------------UploadHistory--------------------------------------------------------------
 #----------------------------------------------------------------------------------------------------------------------------- 
 
-
+class UploadHistory(Base):
+    __tablename__ = "upload_history"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    file_name = Column(String(255), nullable=False)
+    file_type = Column(String(50), nullable=False)  # 'PO' or 'Acceptance'
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+    total_rows = Column(Integer, default=0)
+    status = Column(String(50), nullable=False)  # 'success', 'failed', 'partial'
+    
+    # Relationship
+    user = relationship("User", backref="upload_history")
+    
+    # Indexes for better query performance
+    __table_args__ = (
+        Index('idx_upload_history_user', 'user_id'),
+        Index('idx_upload_history_user_date', 'user_id', 'uploaded_at'),
+        Index('idx_upload_history_user_type', 'user_id', 'file_type'),
+    )
