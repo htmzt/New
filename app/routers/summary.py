@@ -338,6 +338,12 @@ async def export_summary_data(
                     'Metric': 'Total PAC Amount',
                     'Value': result["overall_totals"]["financial_totals"]["total_pac_amount"]
                 }, {
+                    'Metric': 'Total Remaining Amount',  # ADD THIS LINE
+                    'Value': result["overall_totals"]["financial_totals"]["total_remaining_amount"]  # ADD THIS LINE
+                },{
+                    'Metric': 'Paid Amount (Period)',  # ADD THIS NEW FIELD
+                    'Value': result["overall_totals"]["financial_totals"]["paid_amount"]  # ADD THIS NEW FIELD
+                }, {
                     'Metric': 'Overall Completion Rate %',
                     'Value': result["overall_totals"]["overall_completion_rate"]
                 }]
@@ -350,7 +356,6 @@ async def export_summary_data(
                 
                 totals_df = pd.DataFrame(totals_data)
                 totals_df.to_excel(writer, sheet_name='Overall Totals', index=False)
-        
         output.seek(0)
         
         return StreamingResponse(

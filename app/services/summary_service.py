@@ -417,13 +417,14 @@ class SummaryBuilderService(BaseService):
                 base_filter += " AND po.project_name ILIKE :project_name"
                 params["project_name"] = f"%{project_name}%"
             
-            # Get period filter
+            # Get period filter for publish_date (used for PO counts and totals)
             period_filter, period_params = agg.get_period_filter(
                 period_type, year, month, week
             )
             params.update(period_params)
             
-            # Build totals query
+            # Build totals query - SPLIT into two parts
+            # Part 1: Standard totals filtered by publish_date
             totals_query = f"""
             SELECT 
                 {agg.get_financial_aggregations()},
@@ -439,6 +440,19 @@ class SummaryBuilderService(BaseService):
             
             result = self.db.execute(text(totals_query), params).first()
             
+            # Part 2: Calculate paid_amount separately WITHOUT publish_date filter
+            paid_amount_sql = self._build_paid_amount_sql(period_type, year, month, week)
+            paid_query = f"""
+            SELECT 
+                {paid_amount_sql}
+            FROM (
+                {MERGED_DATA_QUERY.format(base_filter=base_filter)}
+            ) as subquery
+            WHERE 1=1
+            """
+            
+            paid_result = self.db.execute(text(paid_query), params).first()
+            
             if not result or result.total_records == 0:
                 return {
                     "total_records": 0,
@@ -449,6 +463,7 @@ class SummaryBuilderService(BaseService):
                         "total_ac_amount": 0,
                         "total_pac_amount": 0,
                         "total_remaining_amount": 0,
+                        "paid_amount": 0,
                     },
                     "overall_completion_rate": 0
                 }
@@ -462,6 +477,7 @@ class SummaryBuilderService(BaseService):
                     "total_ac_amount": float(result.total_ac_amount) if result.total_ac_amount else 0,
                     "total_pac_amount": float(result.total_pac_amount) if result.total_pac_amount else 0,
                     "total_remaining_amount": float(result.total_remaining_amount) if result.total_remaining_amount else 0,
+                    "paid_amount": float(paid_result.paid_amount) if paid_result and paid_result.paid_amount else 0,
                 },
                 "overall_completion_rate": round((result.total_closed / result.total_records) * 100, 2)
             }
@@ -477,10 +493,90 @@ class SummaryBuilderService(BaseService):
                     "total_ac_amount": 0,
                     "total_pac_amount": 0,
                     "total_remaining_amount": 0,
+                    "paid_amount": 0,
                 },
                 "overall_completion_rate": 0
             }
-    
+
+    def _build_paid_amount_sql(
+        self,
+        period_type: str,
+        year: Optional[int],
+        month: Optional[int],
+        week: Optional[int]
+    ) -> str:
+        """
+        Build SQL for calculating paid_amount based on ac_date and pac_date.
+        This calculates ALL payments made during the period, regardless of publish_date.
+        """
+        
+        if period_type == "yearly" and year:
+            return f"""
+                COALESCE(SUM(
+                    CASE 
+                        WHEN EXTRACT(YEAR FROM subquery.ac_date) = :year 
+                        THEN subquery.ac_amount 
+                        ELSE 0 
+                    END +
+                    CASE 
+                        WHEN EXTRACT(YEAR FROM subquery.pac_date) = :year 
+                        THEN subquery.pac_amount 
+                        ELSE 0 
+                    END
+                ), 0) as paid_amount
+            """
+        
+        elif period_type == "monthly" and year and month:
+            return f"""
+                COALESCE(SUM(
+                    CASE 
+                        WHEN EXTRACT(YEAR FROM subquery.ac_date) = :year 
+                            AND EXTRACT(MONTH FROM subquery.ac_date) = :month
+                        THEN subquery.ac_amount 
+                        ELSE 0 
+                    END +
+                    CASE 
+                        WHEN EXTRACT(YEAR FROM subquery.pac_date) = :year 
+                            AND EXTRACT(MONTH FROM subquery.pac_date) = :month
+                        THEN subquery.pac_amount 
+                        ELSE 0 
+                    END
+                ), 0) as paid_amount
+            """
+        
+        elif period_type == "weekly" and year and week:
+            return f"""
+                COALESCE(SUM(
+                    CASE 
+                        WHEN EXTRACT(YEAR FROM DATE_TRUNC('week', subquery.ac_date)) = :year 
+                            AND EXTRACT(WEEK FROM subquery.ac_date) = :week
+                        THEN subquery.ac_amount 
+                        ELSE 0 
+                    END +
+                    CASE 
+                        WHEN EXTRACT(YEAR FROM DATE_TRUNC('week', subquery.pac_date)) = :year 
+                            AND EXTRACT(WEEK FROM subquery.pac_date) = :week
+                        THEN subquery.pac_amount 
+                        ELSE 0 
+                    END
+                ), 0) as paid_amount
+            """
+        
+        else:
+            # No period filter applied - return total of all payments ever made
+            return """
+                COALESCE(SUM(
+                    CASE WHEN subquery.ac_date IS NOT NULL 
+                        THEN subquery.ac_amount 
+                        ELSE 0 
+                    END +
+                    CASE WHEN subquery.pac_date IS NOT NULL 
+                        THEN subquery.pac_amount 
+                        ELSE 0 
+                    END
+                ), 0) as paid_amount
+            """
+        
     def get_available_periods(self, user_id: str, period_type: str = "monthly") -> Dict[str, Any]:
         """
         Get list of available periods in the data.
