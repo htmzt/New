@@ -8,7 +8,36 @@ from app import models
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
+@router.get("/all")
+async def get_all_accounts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all account names and project names for the authenticated user"""
+    user_id = str(current_user.id)
 
+    accounts = db.query(
+        models.Account.id,
+        models.Account.account_name,
+        models.Account.project_name
+    ).filter(
+        models.Account.user_id == user_id
+    ).order_by(
+        models.Account.account_name,
+        models.Account.project_name
+    ).all()
+    
+    # Format the response
+    result = [
+        {
+            "id": str(account.id),
+            "account_name": account.account_name,
+            "project_name": account.project_name
+        }
+        for account in accounts
+    ]
+    
+    return result
 @router.get("/review")
 async def get_accounts_for_review(
     db: Session = Depends(get_db),
@@ -51,3 +80,4 @@ async def update_account(
     db.refresh(account)
     
     return account
+

@@ -44,7 +44,8 @@ async def get_gap_financial_summary(
                     "GAP PO OK; AC NOK",
                     "GAP AC OK; PAC NOK", 
                     "Total GAP AC & PAC",
-                    "Gap Percentage"
+                    "Gap Percentage",
+                    "Completion Percentage"
                 ]
             }
         }
@@ -70,6 +71,7 @@ async def export_gap_financial_summary_excel(
     - GAP AC OK; PAC Nok
     - Total GAP AC & PAC
     - Pourcentage GAP Par Projet
+    - Completion Percentage
     
     This endpoint is optimized for speed by calculating summaries directly in SQL.
     """

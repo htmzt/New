@@ -88,14 +88,17 @@ class GapAnalysisService(BaseService):
                 total_ac_nok += row_dict['gap_po_nok_ac_nok']
                 total_pac_nok += row_dict['gap_ac_ok_pac_nok']
                 total_gap += row_dict['total_gap_ac_pac']
-                
+
+                gap_percentage = int(row_dict['gap_percentage'])
+
                 financial_summary_table.append({
                     "project_name": row_dict['project_name'],
                     "total_po_received": str(row_dict['total_po_received']).replace('.', ','),
                     "gap_po_nok_ac_nok": str(row_dict['gap_po_nok_ac_nok']).replace('.', ','),
                     "gap_ac_ok_pac_nok": str(row_dict['gap_ac_ok_pac_nok']).replace('.', ','),
                     "total_gap_ac_pac": str(row_dict['total_gap_ac_pac']).replace('.', ','),
-                    "gap_percentage": f"{int(row_dict['gap_percentage'])}%"
+                    "gap_percentage": f"{int(row_dict['gap_percentage'])}%",
+                    "completion_percentage": f"{100 - gap_percentage}%"
                 })
             
             # Add total row
@@ -106,7 +109,8 @@ class GapAnalysisService(BaseService):
                 "gap_po_nok_ac_nok": str(round(total_ac_nok, 2)).replace('.', ','),
                 "gap_ac_ok_pac_nok": str(round(total_pac_nok, 2)).replace('.', ','),
                 "total_gap_ac_pac": str(round(total_gap, 2)).replace('.', ','),
-                "gap_percentage": f"{total_gap_percentage}%"
+                "gap_percentage": f"{total_gap_percentage}%",
+                "completion_percentage": f"{100 - total_gap_percentage}%" 
             })
             
             return financial_summary_table
@@ -168,6 +172,11 @@ class GapAnalysisService(BaseService):
                             ROUND((total_gap_ac_pac / total_po_received * 100), 0) || '%'
                         ELSE '0%'
                     END as "Pourcentage GAP Par Projet",
+                    CASE 
+                        WHEN total_po_received > 0 THEN 
+                            (100 - ROUND((total_gap_ac_pac / total_po_received * 100), 0)) || '%'
+                        ELSE '100%'
+                    END as "Completion Percentage",
                     0 as sort_order
                 FROM project_summary
             ),
@@ -183,6 +192,11 @@ class GapAnalysisService(BaseService):
                             ROUND((SUM("Total GAP AC & PAC") / SUM("Total PO Received") * 100), 0) || '%'
                         ELSE '0%'
                     END as "Pourcentage GAP Par Projet",
+                    CASE 
+                        WHEN SUM("Total PO Received") > 0 THEN 
+                            (100 - ROUND((SUM("Total GAP AC & PAC") / SUM("Total PO Received") * 100), 0)) || '%'
+                        ELSE '100%'
+                    END as "Completion Percentage",
                     1 as sort_order
                 FROM project_rows
             ),
@@ -197,7 +211,8 @@ class GapAnalysisService(BaseService):
                 "GAP PO Ok; AC Nok",
                 "GAP AC OK; PAC Nok",
                 "Total GAP AC & PAC",
-                "Pourcentage GAP Par Projet"
+                "Pourcentage GAP Par Projet",
+                "Completion Percentage"
             FROM combined
             ORDER BY sort_order, "Total PO Received" DESC
             """
@@ -235,35 +250,14 @@ class GapAnalysisService(BaseService):
                     header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
                     total_font = Font(bold=True)
                     total_fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
-                    border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                                top=Side(style='thin'), bottom=Side(style='thin'))
                     
-                    # Style header row
-                    for col_num in range(1, len(df.columns) + 1):
-                        cell = worksheet.cell(row=1, column=col_num)
+                    # Apply header formatting
+                    for cell in worksheet[1]:
                         cell.font = header_font
                         cell.fill = header_fill
-                        cell.alignment = Alignment(horizontal="center")
-                        cell.border = border
+                        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
                     
-                    # Style data rows
-                    total_row_num = len(df) + 1
-                    for row_num in range(2, len(df) + 2):
-                        for col_num in range(1, len(df.columns) + 1):
-                            cell = worksheet.cell(row=row_num, column=col_num)
-                            cell.border = border
-                            
-                            # Apply bold and gray background to total row
-                            if row_num == total_row_num:
-                                cell.font = total_font
-                                cell.fill = total_fill
-                            
-                            if col_num > 1:  # Right-align numeric columns
-                                cell.alignment = Alignment(horizontal="right")
-                            else:
-                                cell.alignment = Alignment(horizontal="left")
-                    
-                    # Auto-adjust column widths
+                    # Auto-adjust column width
                     for column in worksheet.columns:
                         max_length = 0
                         column_letter = column[0].column_letter
@@ -273,10 +267,20 @@ class GapAnalysisService(BaseService):
                                     max_length = len(str(cell.value))
                             except:
                                 pass
-                        adjusted_width = min(max_length + 2, 80)
+                        adjusted_width = (max_length + 2)
                         worksheet.column_dimensions[column_letter].width = adjusted_width
-            
+                    
+                    # Find and format the total row
+                    for row_idx, row in enumerate(worksheet.iter_rows(min_row=2), start=2):
+                        if row[0].value == 'TOTAL':
+                            for cell in row:
+                                cell.font = total_font
+                                cell.fill = total_fill
+                                cell.alignment = Alignment(horizontal='center')
+                    
+            # Seek to beginning of file
             output.seek(0)
+            
             return output.getvalue()
             
         except Exception as e:
