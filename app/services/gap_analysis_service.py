@@ -211,7 +211,6 @@ class GapAnalysisService(BaseService):
                 "GAP PO Ok; AC Nok",
                 "GAP AC OK; PAC Nok",
                 "Total GAP AC & PAC",
-                "Pourcentage GAP Par Projet",
                 "Completion Percentage"
             FROM combined
             ORDER BY sort_order, "Total PO Received" DESC
